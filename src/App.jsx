@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, doc, setDoc, onSnapshot, addDoc, updateDoc, deleteDoc, query } from 'firebase/firestore';
+import { getFirestore, collection, doc, setDoc, onSnapshot, addDoc, updateDoc, deleteDoc, getDoc, query } from 'firebase/firestore';
 import { 
   Calendar, User, CheckCircle, AlertCircle, Trash2, LayoutDashboard, Search, 
   ChevronLeft, ChevronRight, Plus, X, Monitor, Lock, Home, ChevronDown, 
@@ -55,9 +55,10 @@ const formatWeekDisplay = (monday) => {
 export default function App() {
   // --- ESTADOS DE AUTENTICAÇÃO ---
   const [currentUser, setCurrentUser] = useState(null); 
-  const [loginForm, setLoginForm] = useState({ username: '', password: '' });
+  const [loginForm, setLoginForm] = useState({ username: '', password: '', remember: false });
   const [authError, setAuthError] = useState('');
   const [firebaseReady, setFirebaseReady] = useState(false);
+  const [loadingSession, setLoadingSession] = useState(true);
 
   // --- ESTADOS DE DADOS ---
   const [bookings, setBookings] = useState([]);
@@ -81,7 +82,7 @@ export default function App() {
   const [issueForm, setIssueForm] = useState({ materialId: '', text: '' });
   const [exportRange, setExportRange] = useState({ start: formatDateToISO(new Date()), end: formatDateToISO(new Date()) });
 
-  // --- 1. FIREBASE AUTH ---
+  // --- 1. FIREBASE AUTH & SESSION RECOVERY ---
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -93,12 +94,33 @@ export default function App() {
         setFirebaseReady(true);
       } catch (err) {
         console.error("Auth init failure", err);
+        setLoadingSession(false);
       }
     };
     initAuth();
   }, []);
 
-  // --- 2. FIRESTORE SYNC ---
+  // --- 2. RESTAURAR SESSÃO ---
+  useEffect(() => {
+    if (!firebaseReady || !auth.currentUser) return;
+
+    const checkSession = async () => {
+      try {
+        const sessionDoc = doc(db, 'artifacts', appId, 'users', auth.currentUser.uid, 'profile', 'session');
+        const snap = await getDoc(sessionDoc);
+        if (snap.exists()) {
+          setCurrentUser(snap.data());
+        }
+      } catch (err) {
+        console.error("Erro ao restaurar sessão", err);
+      } finally {
+        setLoadingSession(false);
+      }
+    };
+    checkSession();
+  }, [firebaseReady]);
+
+  // --- 3. FIRESTORE SYNC ---
   useEffect(() => {
     if (!firebaseReady) return;
 
@@ -137,27 +159,47 @@ export default function App() {
     setTimeout(() => setNotification(null), 4000);
   };
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    const { username, password } = loginForm;
+    const { username, password, remember } = loginForm;
     const cleanName = username.trim().toUpperCase();
     if (!cleanName) return setAuthError('Nome obrigatório.');
 
+    let userObj = null;
     if (password === 'admin') {
-      setCurrentUser({ username: cleanName, isAdmin: true });
-      setActiveTab('agenda');
+      userObj = { username: cleanName, isAdmin: true };
     } else if (password === 'prof') {
-      setCurrentUser({ username: cleanName, isAdmin: false });
-      setActiveTab('agenda');
+      userObj = { username: cleanName, isAdmin: false };
     } else {
       setAuthError('Senha inválida.');
       setTimeout(() => setAuthError(''), 3000);
+      return;
     }
+
+    if (remember && auth.currentUser) {
+      try {
+        const sessionDoc = doc(db, 'artifacts', appId, 'users', auth.currentUser.uid, 'profile', 'session');
+        await setDoc(sessionDoc, userObj);
+      } catch (err) {
+        console.error("Erro ao salvar sessão persistente", err);
+      }
+    }
+
+    setCurrentUser(userObj);
+    setActiveTab('agenda');
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (auth.currentUser) {
+      try {
+        const sessionDoc = doc(db, 'artifacts', appId, 'users', auth.currentUser.uid, 'profile', 'session');
+        await deleteDoc(sessionDoc);
+      } catch (err) {
+        console.error("Erro ao limpar sessão", err);
+      }
+    }
     setCurrentUser(null);
-    setLoginForm({ username: '', password: '' });
+    setLoginForm({ username: '', password: '', remember: false });
   };
 
   const checkResourceBusy = (resId, date, horarioId) => {
@@ -215,7 +257,7 @@ export default function App() {
       const col = collection(db, 'artifacts', appId, 'public', 'data', 'materials');
       await addDoc(col, { ...newMaterial, createdAt: Date.now() });
       setNewMaterial({ name: '', short: '', category: 'Projetor', color: 'bg-blue-600', isShareable: false });
-      notify("Cadastrado!");
+      notify("Material cadastrado!");
     } catch (err) {
       notify("Erro no cadastro.", "error");
     }
@@ -270,19 +312,30 @@ export default function App() {
     });
   }, [currentMonday]);
 
-  // Variavel calculada para evitar ReferenceError no modal
   const modalNextAula = activeCell ? HORARIOS.filter(h => h.type === 'aula')[HORARIOS.filter(h => h.type === 'aula').findIndex(h => h.id === activeCell.horarioId) + 1] : null;
+
+  // Mostra loading enquanto tenta recuperar sessão
+  if (loadingSession) {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center font-sans">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-slate-400 text-xs font-black uppercase tracking-widest">Iniciando Sistema...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-4 font-sans text-slate-900">
-        <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in duration-500">
-          <div className="bg-blue-600 p-12 text-white text-center">
+        <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in zoom-in duration-500">
+          <div className="bg-blue-600 p-12 text-white text-center shadow-lg">
             <div className="bg-white/20 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5 backdrop-blur-lg border border-white/30 text-white shadow-lg">
               <Monitor size={36} />
             </div>
             <h1 className="text-2xl font-black tracking-tight uppercase leading-none">EEMTI Anísio Teixeira</h1>
-            <p className="text-blue-100 text-[10px] font-black uppercase tracking-[0.2em] mt-3">Portal de Agendamento LEI</p>
+            <p className="text-blue-100 text-[10px] font-black uppercase tracking-[0.3em] mt-3">Portal de Agendamento LEI</p>
           </div>
           <form onSubmit={handleLogin} className="p-10 space-y-7">
             <div className="space-y-2">
@@ -299,6 +352,14 @@ export default function App() {
                 <input required type="password" name="password" className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-transparent rounded-2xl focus:border-blue-500 focus:bg-white outline-none transition-all font-bold shadow-inner text-slate-900" placeholder="••••••••" value={loginForm.password} onChange={(e) => setLoginForm({...loginForm, password: e.target.value})} />
               </div>
             </div>
+
+            <div className="flex items-center gap-3 ml-1">
+              <button type="button" onClick={() => setLoginForm({...loginForm, remember: !loginForm.remember})} className={`w-5 h-5 rounded-md border-2 transition-all flex items-center justify-center ${loginForm.remember ? 'bg-blue-600 border-blue-600 shadow-sm' : 'border-slate-200 bg-slate-50'}`}>
+                {loginForm.remember && <Check size={14} className="text-white" strokeWidth={4} />}
+              </button>
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider cursor-pointer" onClick={() => setLoginForm({...loginForm, remember: !loginForm.remember})}>Permanecer conectado</span>
+            </div>
+
             {authError && <div className="bg-red-50 text-red-500 text-xs font-bold p-4 rounded-xl flex items-center gap-2 animate-bounce"><AlertCircle size={14} /> {authError}</div>}
             <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-[1.8rem] font-black hover:bg-blue-700 transition-all shadow-xl flex items-center justify-center gap-2 uppercase text-sm border-b-4 border-blue-900 active:border-b-0 active:translate-y-1">Entrar no Sistema</button>
           </form>
@@ -312,7 +373,7 @@ export default function App() {
       {/* Sidebar */}
       <aside className="w-64 bg-white border-r border-slate-200 flex flex-col hidden lg:flex shrink-0 shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-20">
         <div className="p-8 flex items-center gap-3">
-          <div className="bg-blue-600 p-2 rounded-xl shadow-lg shadow-blue-200"><Monitor className="text-white" size={24} /></div>
+          <div className="bg-blue-600 p-2 rounded-xl shadow-lg shadow-blue-200 text-white"><Monitor size={24} /></div>
           <div><h1 className="font-black text-slate-800 leading-tight text-sm tracking-tighter uppercase">LEI ANÍSIO</h1><p className="text-[9px] text-blue-500 font-bold uppercase tracking-widest leading-none mt-1">EEMTI A. Teixeira</p></div>
         </div>
         <nav className="flex-1 px-4 space-y-1.5 mt-2">
@@ -325,10 +386,10 @@ export default function App() {
           )}
           <SideNavItem icon={<Wrench size={18}/>} label="Ocorrências" active={activeTab === 'issues'} onClick={() => setActiveTab('issues')} />
         </nav>
-        <div className="p-6 border-t border-slate-100 bg-slate-50/30">
+        <div className="p-6 border-t border-slate-100 bg-slate-50/30 text-slate-900">
           <div className="flex items-center justify-between bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
             <div className="flex items-center gap-3">
-              <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-xs ${currentUser.isAdmin ? 'bg-amber-500 text-white' : 'bg-blue-500 text-white'}`}>
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-xs text-white ${currentUser.isAdmin ? 'bg-amber-500 shadow-amber-200' : 'bg-blue-500 shadow-blue-200'} shadow-md`}>
                 {currentUser.username.substring(0, 1)}
               </div>
               <div className="min-w-0">
@@ -345,12 +406,12 @@ export default function App() {
         <header className="h-auto lg:h-20 bg-white border-b border-slate-200 px-4 lg:px-10 py-4 lg:py-0 flex flex-col lg:flex-row lg:items-center justify-between shrink-0 gap-4 z-10 text-slate-900">
           <div className="flex items-center justify-between w-full lg:w-auto">
              <div className="flex items-center gap-3 lg:hidden text-slate-900 font-black">
-               <div className="bg-blue-600 p-1.5 rounded-lg"><Monitor className="text-white" size={16} /></div>
+               <div className="bg-blue-600 p-1.5 rounded-lg text-white"><Monitor size={16} /></div>
                <h1 className="text-xs uppercase tracking-tighter">{currentUser.username}</h1>
                <button onClick={handleLogout} className="p-1.5 text-slate-400 ml-auto"><LogOut size={16}/></button>
              </div>
              {activeTab === 'agenda' && (
-               <div className="relative group flex-1 lg:flex-none mx-4 lg:mx-0">
+               <div className="relative group flex-1 lg:flex-none mx-4 lg:mx-0 text-slate-900">
                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500" size={16} />
                   <input type="text" placeholder="Filtrar docente ou sala..." className="pl-11 pr-4 py-3 bg-slate-50 border-2 border-transparent rounded-2xl focus:border-blue-500 focus:bg-white outline-none w-full lg:w-80 transition-all font-bold text-slate-800 text-xs shadow-inner" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                </div>
@@ -379,13 +440,13 @@ export default function App() {
 
               <div className="lg:min-w-[1100px] bg-white rounded-[2.5rem] lg:rounded-[3.5rem] border border-slate-200 shadow-2xl overflow-hidden">
                 <table className="w-full border-collapse table-fixed">
-                  <thead className="hidden lg:table-header-group">
-                    <tr className="bg-slate-50/50 border-b border-slate-200 text-slate-900 font-black">
-                      <th className="w-28 p-8 text-left text-[10px] uppercase border-r border-slate-200 tracking-widest">Horário</th>
+                  <thead className="hidden lg:table-header-group text-slate-900 font-black">
+                    <tr className="bg-slate-50/50 border-b border-slate-200">
+                      <th className="w-28 p-8 text-left text-[10px] uppercase border-r border-slate-200 tracking-widest font-black">Horário</th>
                       {weekDates.map(item => (
                         <th key={item.date} className="p-8 text-center border-r border-slate-100 last:border-r-0 tracking-widest uppercase">
                           <div className="flex flex-col items-center">
-                            <span className="text-[10px] font-black text-slate-400">{item.nome}</span>
+                            <span className="text-[10px] font-black text-slate-400 leading-none">{item.nome}</span>
                             <span className="text-[12px] text-blue-600 font-black mt-2 bg-blue-50 px-3 py-1 rounded-full border border-blue-100 shadow-sm">{item.dateObj.getDate()} / {item.dateObj.getMonth() + 1}</span>
                           </div>
                         </th>
@@ -398,7 +459,7 @@ export default function App() {
                         <td className="w-16 lg:w-28 p-4 lg:p-8 border-r border-slate-100 text-center align-middle shrink-0">
                           <div className="flex flex-col items-center">
                             <span className="text-[11px] lg:text-xs font-black text-slate-800 leading-none">{horario.label}</span>
-                            {horario.title && <span className="text-[7px] lg:text-[8px] font-black text-blue-500 uppercase mt-2 tracking-widest whitespace-nowrap bg-blue-50 px-1.5 py-0.5 rounded-md">{horario.title}</span>}
+                            {horario.title && <span className="text-[7px] lg:text-[8px] font-black text-blue-500 uppercase mt-2 tracking-widest whitespace-nowrap bg-blue-50 px-1.5 py-0.5 rounded-md shadow-sm border border-blue-100">{horario.title}</span>}
                           </div>
                         </td>
                         {weekDates.map((item, index) => {
@@ -434,7 +495,6 @@ export default function App() {
                                     )}
                                   </div>
                                 ))}
-                                {/* BOTÃO DE "+" SEMPRE VISÍVEL PARA MULTI-AGENDAMENTO */}
                                 <div className="h-12 flex items-center justify-center border-2 border-dashed border-slate-100 rounded-[1.5rem] opacity-30 hover:opacity-100 cursor-pointer transition-opacity" onClick={() => handleOpenModal(item.date, horario.id)}>
                                     <Plus size={20} className="text-slate-300" />
                                 </div>
@@ -453,13 +513,13 @@ export default function App() {
           {activeTab === 'export' && (
             <div className="max-w-4xl mx-auto space-y-8 animate-in slide-in-from-right duration-500">
                <div className="bg-white p-12 rounded-[3.5rem] border border-slate-200 shadow-2xl space-y-10">
-                 <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight text-center">Exportar Relatório Excel</h2>
+                 <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight text-center">Exportar para Excel</h2>
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                   <div className="space-y-3 text-slate-900 font-bold">
+                   <div className="space-y-3 text-slate-900 font-black">
                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Data Início</label>
                      <input type="date" className="w-full px-6 py-4.5 bg-slate-50 rounded-2xl border-2 border-transparent focus:border-blue-500 outline-none shadow-inner" value={exportRange.start} onChange={e => setExportRange({...exportRange, start: e.target.value})} />
                    </div>
-                   <div className="space-y-3 text-slate-900 font-bold">
+                   <div className="space-y-3 text-slate-900 font-black">
                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Data Fim</label>
                      <input type="date" className="w-full px-6 py-4.5 bg-slate-50 rounded-2xl border-2 border-transparent focus:border-blue-500 outline-none shadow-inner" value={exportRange.end} onChange={e => setExportRange({...exportRange, end: e.target.value})} />
                    </div>
@@ -470,10 +530,10 @@ export default function App() {
           )}
 
           {activeTab === 'materials' && (
-            <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in">
+            <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in text-slate-900">
                <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-xl space-y-8">
-                 <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight flex items-center gap-3"><ShieldCheck className="text-blue-600" size={32}/> Gestão de Materiais</h2>
-                 <form onSubmit={addMaterial} className="grid grid-cols-1 md:grid-cols-5 gap-5 text-slate-900 font-bold">
+                 <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight flex items-center gap-3"><ShieldCheck className="text-blue-600" size={32}/> Gerir Materiais</h2>
+                 <form onSubmit={addMaterial} className="grid grid-cols-1 md:grid-cols-5 gap-5 font-bold">
                     <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 ml-2 uppercase">Nome</label><input className="w-full px-5 py-4 bg-slate-50 rounded-2xl border border-slate-100" value={newMaterial.name} onChange={e => setNewMaterial({...newMaterial, name: e.target.value})} placeholder="Projetor 08" /></div>
                     <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 ml-2 uppercase">Sigla</label><input className="w-full px-5 py-4 bg-slate-50 rounded-2xl border border-slate-100 uppercase" value={newMaterial.short} onChange={e => setNewMaterial({...newMaterial, short: e.target.value.toUpperCase()})} placeholder="P8" /></div>
                     <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 ml-2 uppercase">Tipo</label><select className="w-full px-5 py-4 bg-slate-50 rounded-2xl border border-slate-100" value={newMaterial.isShareable} onChange={e => setNewMaterial({...newMaterial, isShareable: e.target.value === "true"})}><option value="false">Unitário</option><option value="true">Livre</option></select></div>
@@ -481,7 +541,7 @@ export default function App() {
                     <button type="submit" className="md:mt-6 py-4.5 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-700 shadow-lg text-xs uppercase active:scale-95 transition-transform">Salvar</button>
                  </form>
                </div>
-               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 text-slate-900">{materials.map(m => (<div key={m.id} className="bg-white p-6 rounded-[2rem] border border-slate-200 flex items-center justify-between group shadow-md hover:shadow-lg transition-all"><div className="flex items-center gap-4"><div className={`w-12 h-12 rounded-2xl ${m.color} flex items-center justify-center text-white font-black shadow-lg`}>{m.short}</div><div><p className="font-black text-xs uppercase leading-tight">{m.name}</p><p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter mt-1">{m.isShareable ? "Livre" : "Unitário"}</p></div></div>{m.id !== 'lab' && <button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'materials', m.id))} className="text-slate-300 hover:text-red-500 p-2"><Trash2 size={18}/></button>}</div>))}</div>
+               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">{materials.map(m => (<div key={m.id} className="bg-white p-6 rounded-[2rem] border border-slate-200 flex items-center justify-between group shadow-md hover:shadow-lg transition-all"><div className="flex items-center gap-4 text-slate-900"><div className={`w-12 h-12 rounded-2xl ${m.color} flex items-center justify-center text-white font-black shadow-lg shadow-blue-100`}>{m.short}</div><div><p className="font-black text-xs uppercase leading-tight">{m.name}</p><p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter mt-1">{m.isShareable ? "Livre" : "Unitário"}</p></div></div>{m.id !== 'lab' && <button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'materials', m.id))} className="text-slate-300 hover:text-red-500 p-2 transition-colors"><Trash2 size={18}/></button>}</div>))}</div>
             </div>
           )}
 
@@ -490,22 +550,22 @@ export default function App() {
               <div className="flex items-center justify-between gap-4 px-2 text-slate-900">
                 <div><h2 className="text-xl font-black uppercase tracking-tight">Ocorrências</h2><p className="text-slate-500 text-xs mt-1">Alertas e manutenção preventiva.</p></div>
               </div>
-              <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-xl space-y-4">
+              <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-xl space-y-4 shadow-slate-100">
                 <form onSubmit={reportIssue} className="grid grid-cols-1 md:grid-cols-12 gap-5 items-end">
-                   <div className="md:col-span-4 space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase ml-2">Material</label><select className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm text-slate-900 shadow-inner" value={issueForm.materialId} onChange={e => setIssueForm({...issueForm, materialId: e.target.value})} required><option value="">Escolha...</option>{materials.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></div>
-                   <div className="md:col-span-6 space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase ml-2">Problema</label><input className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm text-slate-900 shadow-inner" placeholder="Descreva o defeito..." value={issueForm.text} onChange={e => setIssueForm({...issueForm, text: e.target.value})} required /></div>
+                   <div className="md:col-span-4 space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase ml-2 tracking-widest">Qual o material?</label><select className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm text-slate-900 shadow-inner" value={issueForm.materialId} onChange={e => setIssueForm({...issueForm, materialId: e.target.value})} required><option value="">Escolha...</option>{materials.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></div>
+                   <div className="md:col-span-6 space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase ml-2 tracking-widest">Problema</label><input className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm text-slate-900 shadow-inner" placeholder="Descreva o defeito..." value={issueForm.text} onChange={e => setIssueForm({...issueForm, text: e.target.value})} required /></div>
                    <button type="submit" className="md:col-span-2 py-4.5 bg-slate-800 text-white font-black rounded-2xl hover:bg-black transition-all text-[10px] uppercase shadow-lg">Enviar</button>
                 </form>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-slate-900">{issues.map(i => (<div key={i.id} className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-md flex gap-5 animate-in slide-in-from-top-2"><div className={`p-4 rounded-2xl h-fit ${i.status === 'resolvido' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}><Wrench size={20}/></div><div className="flex-1 min-w-0"><div className="flex items-center justify-between mb-2"><span className="font-black text-xs uppercase">{i.materialName}</span><span className={`text-[8px] font-black px-3 py-1 rounded-full uppercase ${i.status === 'resolvido' ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-white'}`}>{i.status}</span></div><p className="text-slate-600 text-sm italic line-clamp-2">"{i.text}"</p><div className="flex items-center justify-between mt-4"><p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">{i.teacher} • {i.date}</p>{currentUser.isAdmin && i.status === 'pendente' && <button onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'issues', i.id), {status:'resolvido'})} className="text-[9px] font-black text-blue-600 hover:underline uppercase tracking-widest">Resolver</button>}</div></div></div>))}</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-slate-900">{issues.map(i => (<div key={i.id} className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-md flex gap-5 animate-in slide-in-from-top-2"><div className={`p-4 rounded-2xl h-fit ${i.status === 'resolvido' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'} shadow-sm`}><Wrench size={20}/></div><div className="flex-1 min-w-0"><div className="flex items-center justify-between mb-2"><span className="font-black text-xs uppercase text-slate-900">{i.materialName}</span><span className={`text-[8px] font-black px-3 py-1 rounded-full uppercase ${i.status === 'resolvido' ? 'bg-emerald-500 text-white shadow-emerald-200' : 'bg-amber-500 text-white shadow-amber-200'} shadow-md`}>{i.status}</span></div><p className="text-slate-600 text-sm italic line-clamp-2">"{i.text}"</p><div className="flex items-center justify-between mt-4"><p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">{i.teacher} • {i.date}</p>{currentUser.isAdmin && i.status === 'pendente' && <button onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'issues', i.id), {status:'resolvido'})} className="text-[9px] font-black text-blue-600 hover:underline uppercase tracking-widest">Resolver</button>}</div></div></div>))}</div>
             </div>
           )}
         </div>
 
-        {notification && <div className={`fixed bottom-24 lg:bottom-10 right-4 lg:right-10 px-8 py-5 rounded-[2rem] shadow-2xl flex items-center gap-4 z-[1000] animate-in slide-in-from-bottom duration-300 border-b-4 ${notification.type === 'error' ? 'bg-slate-900 border-red-500 text-white' : 'bg-slate-900 border-green-500 text-white'}`}><div className={notification.type === 'error' ? 'text-red-400' : 'text-green-400'}>{notification.type === 'error' ? <AlertCircle size={24}/> : <CheckCircle size={24}/>}</div><span className="text-sm font-black uppercase tracking-widest">{notification.message}</span></div>}
+        {notification && <div className={`fixed bottom-24 lg:bottom-10 right-4 lg:right-10 px-8 py-5 rounded-[2rem] shadow-2xl flex items-center gap-4 z-[1000] animate-in slide-in-from-bottom duration-300 border-b-4 ${notification.type === 'error' ? 'bg-slate-900 border-red-500 text-white' : 'bg-slate-900 border-green-500 text-white'}`}><div className={notification.type === 'error' ? 'text-red-400' : 'text-green-400'}>{notification.type === 'error' ? <AlertCircle size={24}/> : <CheckCircle size={24}/>}</div><span className="text-sm font-black uppercase tracking-widest tracking-tighter">{notification.message}</span></div>}
       </main>
 
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 h-20 bg-white/90 backdrop-blur-xl border-t border-slate-200 flex items-center justify-around px-4 z-40">
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 h-20 bg-white/80 backdrop-blur-xl border-t border-slate-200 flex items-center justify-around px-4 z-40">
         <MobileNavItem icon={<LayoutDashboard size={22} />} label="Agenda" active={activeTab === 'agenda'} onClick={() => setActiveTab('agenda')} />
         {currentUser.isAdmin && <MobileNavItem icon={<Layers size={22} />} label="Gerir" active={activeTab === 'materials'} onClick={() => setActiveTab('materials')} />}
         {currentUser.isAdmin && <MobileNavItem icon={<Download size={22} />} label="Excel" active={activeTab === 'export'} onClick={() => setActiveTab('export')} />}
@@ -514,12 +574,12 @@ export default function App() {
 
       {modalOpen && activeCell && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-xl z-[500] flex items-end lg:items-center justify-center p-0 lg:p-4 overflow-hidden animate-in fade-in">
-          <div className="bg-white rounded-t-[3.5rem] lg:rounded-[4rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in slide-in-from-bottom lg:zoom-in flex flex-col max-h-[95vh] border border-slate-100">
-            <div className="bg-blue-600 p-10 text-white relative">
-              <h2 className="text-3xl font-black uppercase tracking-tight leading-none text-white">Agendar Recurso</h2>
+          <div className="bg-white rounded-t-[3.5rem] lg:rounded-[4rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in slide-in-from-bottom lg:zoom-in flex flex-col max-h-[95vh] border border-slate-100 shadow-blue-900/20">
+            <div className="bg-blue-600 p-10 text-white relative shadow-lg">
+              <h2 className="text-3xl font-black uppercase tracking-tight leading-none text-white">Reservar Item</h2>
               <div className="flex items-center gap-3 mt-5">
-                <p className="text-blue-100 text-[10px] font-black uppercase bg-blue-700/50 w-fit px-4 py-1.5 rounded-xl border border-white/10">{currentUser.username}</p>
-                <p className="text-blue-100 text-[10px] font-black uppercase bg-blue-700/50 w-fit px-4 py-1.5 rounded-xl border border-white/10">{new Date(activeCell.date + 'T12:00:00').toLocaleDateString('pt-BR', {day:'2-digit', month:'long'})}</p>
+                <p className="text-blue-100 text-[10px] font-black uppercase bg-blue-700/50 w-fit px-4 py-1.5 rounded-xl border border-white/10 shadow-sm">{currentUser.username}</p>
+                <p className="text-blue-100 text-[10px] font-black uppercase bg-blue-700/50 w-fit px-4 py-1.5 rounded-xl border border-white/10 shadow-sm">{new Date(activeCell.date + 'T12:00:00').toLocaleDateString('pt-BR', {day:'2-digit', month:'long'})}</p>
               </div>
               <button onClick={() => setModalOpen(false)} className="absolute top-10 right-10 text-white/50 hover:text-white transition-all bg-white/10 rounded-full p-2.5"><X size={28}/></button>
             </div>
@@ -539,15 +599,15 @@ export default function App() {
                   <div className="flex items-center gap-5">
                     <div className="bg-white p-3 rounded-2xl text-blue-600 shadow-md border border-blue-50"><Repeat size={20} /></div>
                     <div>
-                      <p className="text-xs font-black text-slate-900 uppercase tracking-tight">Aula Geminada?</p>
-                      <p className="text-[10px] text-blue-600 font-black uppercase mt-0.5 tracking-tighter">Incluir {modalNextAula.label}</p>
+                      <p className="text-xs font-black text-slate-900 uppercase tracking-tight text-slate-900 leading-none">Aula Geminada?</p>
+                      <p className="text-[10px] text-blue-600 font-black uppercase mt-1 tracking-widest">Incluir {modalNextAula.label}</p>
                     </div>
                   </div>
                   <button type="button" onClick={() => setIsDoubleBooking(!isDoubleBooking)} className={`w-14 h-7 rounded-full transition-all relative shadow-inner ${isDoubleBooking ? 'bg-blue-600' : 'bg-slate-300'}`}><div className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow-md transition-all ${isDoubleBooking ? 'left-8' : 'left-1'}`} /></button>
                 </div>
               )}
-              <div className="space-y-4">
-                <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-2 text-slate-400">Materiais</label>
+              <div className="space-y-4 text-slate-900">
+                <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-2 text-slate-400 tracking-[0.2em]">Materiais</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {materials.map(res => {
                     const isBusy = checkResourceBusy(res.id, activeCell.date, activeCell.horarioId);
@@ -555,10 +615,10 @@ export default function App() {
                     const itemLocked = isBusy || isBusyNext;
                     const isSelected = selectedResources.includes(res.id);
                     return (
-                      <button key={res.id} type="button" onClick={() => !itemLocked && setSelectedResources(p => p.includes(res.id) ? p.filter(r => r !== res.id) : [...p, res.id])} className={`p-5 rounded-[1.5rem] border-2 text-left transition-all flex items-center justify-between shadow-sm ${itemLocked ? 'bg-slate-50 border-slate-100 opacity-40 cursor-not-allowed border-dashed' : isSelected ? 'border-blue-600 bg-blue-50 ring-4 ring-blue-50 scale-102' : 'bg-white border-slate-100 hover:border-blue-400'}`}>
-                        <div className="flex items-center gap-4">
+                      <button key={res.id} type="button" onClick={() => !itemLocked && setSelectedResources(p => p.includes(res.id) ? p.filter(r => r !== res.id) : [...p, res.id])} className={`p-5 rounded-[1.5rem] border-2 text-left transition-all flex items-center justify-between shadow-sm ${itemLocked ? 'bg-slate-50 border-slate-100 opacity-40 cursor-not-allowed border-dashed' : isSelected ? 'border-blue-600 bg-blue-50 ring-4 ring-blue-50 scale-102 font-black shadow-blue-100 shadow-lg' : 'bg-white border-slate-100 hover:border-blue-400 shadow-inner'}`}>
+                        <div className="flex items-center gap-4 text-slate-900 font-black">
                           <div className={`w-3.5 h-3.5 rounded-full ${res.color} border-2 border-white shadow-sm`} />
-                          <span className="text-[11px] font-black uppercase text-slate-700 tracking-tight">{res.name}</span>
+                          <span className="text-[11px] uppercase tracking-tight">{res.name}</span>
                         </div>
                         {itemLocked ? <div className="flex items-center gap-1.5 text-[10px] font-black text-red-500 uppercase tracking-tighter leading-none"><Lock size={12}/> Ocupado</div> : isSelected && <div className="bg-blue-600 text-white p-1 rounded-lg shadow-md"><Check size={14} strokeWidth={4}/></div>}
                       </button>
@@ -566,7 +626,7 @@ export default function App() {
                   })}
                 </div>
               </div>
-              <button type="submit" className="w-full py-6 bg-blue-600 text-white rounded-[2.2rem] font-black hover:bg-blue-700 transition-all shadow-xl uppercase tracking-widest text-sm mt-4 border-b-4 border-blue-900 active:border-b-0 active:translate-y-1">Confirmar Reserva</button>
+              <button type="submit" className="w-full py-6 bg-blue-600 text-white rounded-[2.2rem] font-black hover:bg-blue-700 transition-all shadow-xl uppercase tracking-widest text-sm mt-4 border-b-4 border-blue-900 active:border-b-0 active:translate-y-1">Confirmar Agendamento</button>
             </form>
           </div>
         </div>
@@ -577,17 +637,17 @@ export default function App() {
 
 function SideNavItem({ icon, label, active, onClick }) {
   return (
-    <button onClick={onClick} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[1.2rem] transition-all border-2 ${active ? 'bg-blue-600 border-blue-600 text-white shadow-xl shadow-blue-100 font-bold' : 'border-transparent text-slate-400 hover:bg-slate-50 hover:text-slate-700 font-bold'}`}>
-      {icon} <span className="text-sm tracking-tight">{label}</span>
+    <button onClick={onClick} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[1.2rem] transition-all border-2 ${active ? 'bg-blue-600 border-blue-600 text-white shadow-xl shadow-blue-200 font-black' : 'border-transparent text-slate-400 hover:bg-slate-50 hover:text-slate-700 font-bold'}`}>
+      {icon} <span className="text-sm tracking-tight tracking-widest">{label}</span>
     </button>
   );
 }
 
 function MobileNavItem({ icon, label, active, onClick }) {
   return (
-    <button onClick={onClick} className={`flex-1 flex flex-col items-center justify-center gap-1.5 h-full transition-all ${active ? 'text-blue-600 scale-110 font-bold' : 'text-slate-400 font-bold'}`}>
-      <div className={`transition-all ${active ? 'bg-blue-50 p-2 rounded-2xl shadow-inner' : ''}`}>{icon}</div>
-      <span className={`text-[9px] font-black uppercase tracking-tighter ${active ? 'opacity-100' : 'opacity-60'}`}>{label}</span>
+    <button onClick={onClick} className={`flex-1 flex flex-col items-center justify-center gap-1.5 h-full transition-all ${active ? 'text-blue-600 scale-110 font-black' : 'text-slate-400 font-bold'}`}>
+      <div className={`transition-all ${active ? 'bg-blue-50 p-2.5 rounded-2xl shadow-inner' : ''}`}>{icon}</div>
+      <span className={`text-[9px] uppercase tracking-tighter ${active ? 'opacity-100' : 'opacity-60'}`}>{label}</span>
     </button>
   );
 }
