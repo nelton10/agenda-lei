@@ -216,6 +216,12 @@ export default function App() {
     setSelectedRoom("");
   };
 
+  const getNextAula = (horarioId) => {
+    const onlyAulas = HORARIOS.filter(h => h.type === 'aula');
+    const currentIndex = onlyAulas.findIndex(h => h.id === horarioId);
+    return onlyAulas[currentIndex + 1] || null;
+  };
+
   const checkResourceBusy = (resId, date, horarioId) => {
     const mat = materials.find(m => m.id === resId);
     if (!mat || mat.isShareable) return false;
@@ -227,11 +233,9 @@ export default function App() {
     if (!selectedRoom || selectedResources.length === 0) return notify("Campos incompletos.", "error");
 
     const slots = [activeCell.horarioId];
-    const onlyAulas = HORARIOS.filter(h => h.type === 'aula');
-    const idx = onlyAulas.findIndex(h => h.id === activeCell.horarioId);
-    const next = onlyAulas[idx + 1] || null;
+    const nextAula = getNextAula(activeCell.horarioId);
 
-    if (isDoubleBooking && next) slots.push(next.id);
+    if (isDoubleBooking && nextAula) slots.push(nextAula.id);
 
     const conflict = slots.some(s => selectedResources.some(r => checkResourceBusy(r, activeCell.date, s)));
     if (conflict) return notify("Item ocupado!", "error");
@@ -326,7 +330,8 @@ export default function App() {
     });
   }, [currentMonday]);
 
-  const modalNextAula = activeCell ? HORARIOS.filter(h => h.type === 'aula')[HORARIOS.filter(h => h.type === 'aula').findIndex(h => h.id === activeCell.horarioId) + 1] : null;
+  // Variavel calculada para evitar ReferenceError no modal
+  const modalNextAula = activeCell ? getNextAula(activeCell.horarioId) : null;
 
   if (loadingSession) {
     return (
@@ -347,22 +352,22 @@ export default function App() {
             <div className="bg-white/20 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5 backdrop-blur-lg border border-white/30 text-white shadow-lg">
               <Monitor size={36} />
             </div>
-            <h1 className="text-2xl font-black tracking-tight uppercase leading-none">EEMTI Anísio Teixeira</h1>
+            <h1 className="text-2xl font-black tracking-tight uppercase leading-none text-white">EEMTI Anísio Teixeira</h1>
             <p className="text-blue-100 text-[10px] font-black uppercase tracking-[0.3em] mt-3">Portal de Agendamento LEI</p>
           </div>
           <form onSubmit={handleLogin} className="p-10 space-y-7">
-            <div className="space-y-2 text-slate-900">
+            <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Utilizador / Nome</label>
-              <div className="relative">
+              <div className="relative text-slate-900">
                 <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
-                <input required className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-transparent rounded-2xl focus:border-blue-500 focus:bg-white outline-none transition-all font-bold uppercase shadow-inner" placeholder="SEU NOME" value={loginForm.username} onChange={(e) => setLoginForm({...loginForm, username: e.target.value})} />
+                <input required className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-transparent rounded-2xl focus:border-blue-500 focus:bg-white outline-none transition-all font-bold uppercase shadow-inner text-slate-900" placeholder="SEU NOME" value={loginForm.username} onChange={(e) => setLoginForm({...loginForm, username: e.target.value})} />
               </div>
             </div>
-            <div className="space-y-2 text-slate-900">
+            <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Senha</label>
-              <div className="relative">
+              <div className="relative text-slate-900">
                 <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
-                <input required type="password" name="password" className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-transparent rounded-2xl focus:border-blue-500 focus:bg-white outline-none transition-all font-bold shadow-inner" placeholder="••••••••" value={loginForm.password} onChange={(e) => setLoginForm({...loginForm, password: e.target.value})} />
+                <input required type="password" name="password" className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-transparent rounded-2xl focus:border-blue-500 focus:bg-white outline-none transition-all font-bold shadow-inner text-slate-900" placeholder="••••••••" value={loginForm.password} onChange={(e) => setLoginForm({...loginForm, password: e.target.value})} />
               </div>
             </div>
             <div className="flex items-center gap-3 ml-1 group cursor-pointer" onClick={() => setLoginForm({...loginForm, remember: !loginForm.remember})}>
@@ -381,10 +386,11 @@ export default function App() {
 
   return (
     <div className="flex flex-col lg:flex-row h-screen bg-[#F8FAFC] overflow-hidden font-sans text-slate-900">
+      {/* Sidebar */}
       <aside className="w-64 bg-white border-r border-slate-200 flex flex-col hidden lg:flex shrink-0 shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-20">
         <div className="p-8 flex items-center gap-3">
           <div className="bg-blue-600 p-2 rounded-xl shadow-lg shadow-blue-200 text-white"><Monitor size={24} /></div>
-          <div><h1 className="font-black text-slate-800 leading-tight text-sm tracking-tighter uppercase">LEI ANÍSIO</h1><p className="text-[9px] text-blue-500 font-bold uppercase tracking-widest">EEMTI A. Teixeira</p></div>
+          <div><h1 className="font-black text-slate-800 leading-tight text-sm tracking-tighter uppercase">LEI ANÍSIO</h1><p className="text-[9px] text-blue-500 font-bold uppercase tracking-widest leading-none mt-1">EEMTI A. Teixeira</p></div>
         </div>
         <nav className="flex-1 px-4 space-y-1.5 mt-2">
           <SideNavItem icon={<LayoutDashboard size={18}/>} label="Agenda Semanal" active={activeTab === 'agenda'} onClick={() => setActiveTab('agenda')} />
@@ -407,7 +413,7 @@ export default function App() {
                 <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">{currentUser.isAdmin ? 'Admin' : 'Docente'}</p>
               </div>
             </div>
-            <button onClick={handleLogout} className="text-slate-300 hover:text-red-500 transition-colors ml-2 p-1 rounded-lg hover:bg-red-50"><LogOut size={16} /></button>
+            <button onClick={handleLogout} className="text-slate-300 hover:text-red-500 transition-colors ml-2"><LogOut size={16} /></button>
           </div>
         </div>
       </aside>
@@ -415,15 +421,15 @@ export default function App() {
       <main className="flex-1 flex flex-col overflow-hidden pb-20 lg:pb-0">
         <header className="h-auto lg:h-20 bg-white border-b border-slate-200 px-4 lg:px-10 py-4 lg:py-0 flex flex-col lg:flex-row lg:items-center justify-between shrink-0 gap-4 z-10 text-slate-900 shadow-sm">
           <div className="flex items-center justify-between w-full lg:w-auto text-slate-900">
-             <div className="flex items-center gap-3 lg:hidden font-black">
+             <div className="flex items-center gap-3 lg:hidden text-slate-900 font-black">
                <div className="bg-blue-600 p-1.5 rounded-lg text-white shadow-md shadow-blue-200"><Monitor size={16} /></div>
                <h1 className="text-xs uppercase tracking-tighter">{currentUser.username}</h1>
                <button onClick={handleLogout} className="p-2 text-slate-400 ml-auto bg-slate-50 rounded-xl"><LogOut size={16}/></button>
              </div>
              {activeTab === 'agenda' && (
-               <div className="relative group flex-1 lg:flex-none mx-4 lg:mx-0">
+               <div className="relative group flex-1 lg:flex-none mx-4 lg:mx-0 text-slate-900">
                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500" size={16} />
-                  <input type="text" placeholder="Filtrar docente ou sala..." className="pl-11 pr-4 py-3 bg-slate-50 border-2 border-transparent rounded-2xl focus:border-blue-500 focus:bg-white outline-none w-full lg:w-80 transition-all font-bold text-slate-800 text-xs shadow-inner" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                  <input type="text" placeholder="Filtrar docente ou sala..." className="pl-11 pr-4 py-3 bg-slate-50 border-2 border-transparent rounded-2xl focus:border-blue-500 focus:bg-white outline-none w-full lg:w-80 transition-all font-bold text-slate-800 text-xs shadow-inner text-slate-900 font-black" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                </div>
              )}
           </div>
@@ -456,7 +462,7 @@ export default function App() {
                       {weekDates.map(item => (
                         <th key={item.date} className="p-8 text-center border-r border-slate-100 last:border-r-0 tracking-widest uppercase text-slate-900 font-black">
                           <div className="flex flex-col items-center">
-                            <span className="text-[10px] font-black text-slate-400 leading-none">{item.nome}</span>
+                            <span className="text-[10px] font-black text-slate-400 leading-none uppercase">{item.nome}</span>
                             <span className="text-[12px] text-blue-600 font-black mt-2 bg-blue-50 px-3 py-1 rounded-full border border-blue-100 shadow-sm">{item.dateObj.getDate()} / {item.dateObj.getMonth() + 1}</span>
                           </div>
                         </th>
@@ -540,18 +546,18 @@ export default function App() {
           )}
 
           {activeTab === 'materials' && (
-            <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in text-slate-900 font-black">
-               <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-xl space-y-8">
+            <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in text-slate-900 font-black font-black font-black font-black">
+               <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-xl space-y-8 text-slate-900 font-black">
                  <h2 className="text-2xl font-black uppercase tracking-tight flex items-center gap-3 text-slate-900"><ShieldCheck className="text-blue-600" size={32}/> Gerir Materiais</h2>
                  <form onSubmit={addMaterial} className="grid grid-cols-1 md:grid-cols-5 gap-5 font-bold">
-                    <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 ml-2 uppercase tracking-widest">Nome</label><input className="w-full px-5 py-4 bg-slate-50 rounded-2xl border border-slate-100 text-slate-900" value={newMaterial.name} onChange={e => setNewMaterial({...newMaterial, name: e.target.value})} placeholder="Projetor 08" /></div>
-                    <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 ml-2 uppercase tracking-widest">Sigla</label><input className="w-full px-5 py-4 bg-slate-50 rounded-2xl border border-slate-100 uppercase text-slate-900" value={newMaterial.short} onChange={e => setNewMaterial({...newMaterial, short: e.target.value.toUpperCase()})} placeholder="P8" /></div>
-                    <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 ml-2 uppercase tracking-widest">Tipo</label><select className="w-full px-5 py-4 bg-slate-50 rounded-2xl border border-slate-100 text-slate-900 font-bold" value={newMaterial.isShareable} onChange={e => setNewMaterial({...newMaterial, isShareable: e.target.value === "true"})}><option value="false">Unitário</option><option value="true">Livre</option></select></div>
-                    <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 ml-2 uppercase tracking-widest">Cor</label><select className="w-full px-5 py-4 bg-slate-50 rounded-2xl border border-slate-100 text-slate-900 font-bold" value={newMaterial.color} onChange={e => setNewMaterial({...newMaterial, color: e.target.value})}><option value="bg-blue-600">Azul</option><option value="bg-emerald-600">Verde</option><option value="bg-purple-600">Roxo</option><option value="bg-red-600">Vermelho</option></select></div>
+                    <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 ml-2 uppercase tracking-widest">Nome</label><input className="w-full px-5 py-4 bg-slate-50 rounded-2xl border border-slate-100 text-slate-900 font-black" value={newMaterial.name} onChange={e => setNewMaterial({...newMaterial, name: e.target.value})} placeholder="Projetor 08" /></div>
+                    <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 ml-2 uppercase tracking-widest">Sigla</label><input className="w-full px-5 py-4 bg-slate-50 rounded-2xl border border-slate-100 uppercase text-slate-900 font-black" value={newMaterial.short} onChange={e => setNewMaterial({...newMaterial, short: e.target.value.toUpperCase()})} placeholder="P8" /></div>
+                    <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 ml-2 uppercase tracking-widest">Tipo</label><select className="w-full px-5 py-4 bg-slate-50 rounded-2xl border border-slate-100 text-slate-900 font-black font-bold" value={newMaterial.isShareable} onChange={e => setNewMaterial({...newMaterial, isShareable: e.target.value === "true"})}><option value="false">Unitário</option><option value="true">Livre</option></select></div>
+                    <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 ml-2 uppercase tracking-widest">Cor</label><select className="w-full px-5 py-4 bg-slate-50 rounded-2xl border border-slate-100 text-slate-900 font-black font-bold" value={newMaterial.color} onChange={e => setNewMaterial({...newMaterial, color: e.target.value})}><option value="bg-blue-600">Azul</option><option value="bg-emerald-600">Verde</option><option value="bg-purple-600">Roxo</option><option value="bg-red-600">Vermelho</option></select></div>
                     <button type="submit" className="md:mt-6 py-4.5 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-700 shadow-lg text-xs uppercase active:scale-95 transition-transform border-b-4 border-blue-900">Salvar</button>
                  </form>
                </div>
-               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 text-slate-900">{materials.map(m => (<div key={m.id} className="bg-white p-6 rounded-[2rem] border border-slate-200 flex items-center justify-between group shadow-md hover:shadow-lg transition-all"><div className="flex items-center gap-4 text-slate-900"><div className={`w-12 h-12 rounded-2xl ${m.color} flex items-center justify-center text-white font-black shadow-lg shadow-blue-100`}>{m.short}</div><div><p className="font-black text-xs uppercase leading-tight text-slate-900">{m.name}</p><p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter mt-1">{m.isShareable ? "Livre" : "Unitário"}</p></div></div>{m.id !== 'lab' && <button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'materials', m.id))} className="text-slate-300 hover:text-red-500 p-2 transition-colors hover:scale-125"><Trash2 size={18}/></button>}</div>))}</div>
+               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 text-slate-900 font-black">{materials.map(m => (<div key={m.id} className="bg-white p-6 rounded-[2rem] border border-slate-200 flex items-center justify-between group shadow-md hover:shadow-lg transition-all"><div className="flex items-center gap-4 text-slate-900"><div className={`w-12 h-12 rounded-2xl ${m.color} flex items-center justify-center text-white font-black shadow-lg shadow-blue-100`}>{m.short}</div><div><p className="font-black text-xs uppercase leading-tight text-slate-900">{m.name}</p><p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter mt-1">{m.isShareable ? "Livre" : "Unitário"}</p></div></div>{m.id !== 'lab' && <button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'materials', m.id))} className="text-slate-300 hover:text-red-500 p-2 transition-colors hover:scale-125"><Trash2 size={18}/></button>}</div>))}</div>
             </div>
           )}
 
@@ -572,35 +578,35 @@ export default function App() {
                    <button type="submit" className="md:col-span-2 py-4.5 bg-slate-800 text-white font-black rounded-2xl hover:bg-black transition-all text-[10px] uppercase shadow-lg tracking-[0.1em] border-b-4 border-black">Enviar</button>
                 </form>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-slate-900 font-black">{issues.map(i => (<div key={i.id} className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-md flex gap-5 animate-in slide-in-from-top-2"><div className={`p-4 rounded-2xl h-fit ${i.status === 'resolvido' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'} shadow-sm`}><Wrench size={20}/></div><div className="flex-1 min-w-0"><div className="flex items-center justify-between mb-2"><span className="font-black text-xs uppercase text-slate-900">{i.materialName}</span><span className={`text-[8px] font-black px-3 py-1 rounded-full uppercase ${i.status === 'resolvido' ? 'bg-emerald-500 text-white shadow-emerald-200' : 'bg-amber-500 text-white shadow-amber-200'} shadow-md`}>{i.status}</span></div><p className="text-slate-600 text-sm italic line-clamp-2">"{i.text}"</p><div className="flex items-center justify-between mt-4 text-slate-900"><p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter font-black">{i.teacher} • {i.date}</p>{currentUser.isAdmin && i.status === 'pendente' && <button onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'issues', i.id), {status:'resolvido'})} className="text-[9px] font-black text-blue-600 hover:underline uppercase tracking-widest">Resolver</button>}</div></div></div>))}</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-slate-900 font-black">{issues.map(i => (<div key={i.id} className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-md flex gap-5 animate-in slide-in-from-top-2 text-slate-900 font-black font-black font-black"><div className={`p-4 rounded-2xl h-fit ${i.status === 'resolvido' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'} shadow-sm`}><Wrench size={20}/></div><div className="flex-1 min-w-0"><div className="flex items-center justify-between mb-2 font-black text-slate-900"><span className="font-black text-xs uppercase text-slate-900">{i.materialName}</span><span className={`text-[8px] font-black px-3 py-1 rounded-full uppercase ${i.status === 'resolvido' ? 'bg-emerald-500 text-white shadow-emerald-200' : 'bg-amber-500 text-white shadow-amber-200'} shadow-md`}>{i.status}</span></div><p className="text-slate-600 text-sm italic line-clamp-2">"{i.text}"</p><div className="flex items-center justify-between mt-4 text-slate-900"><p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter font-black">{i.teacher} • {i.date}</p>{currentUser.isAdmin && i.status === 'pendente' && <button onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'issues', i.id), {status:'resolvido'})} className="text-[9px] font-black text-blue-600 hover:underline uppercase tracking-widest font-black">Resolver</button>}</div></div></div>))}</div>
             </div>
           )}
         </div>
 
-        {notification && <div className={`fixed bottom-24 lg:bottom-10 right-4 lg:right-10 px-8 py-5 rounded-[2.5rem] shadow-2xl flex items-center gap-4 z-[1000] animate-in slide-in-from-bottom duration-300 border-b-4 ${notification.type === 'error' ? 'bg-slate-900 border-red-500 text-white' : 'bg-slate-900 border-green-500 text-white'}`}><div className={notification.type === 'error' ? 'text-red-400' : 'text-green-400'}>{notification.type === 'error' ? <AlertCircle size={24}/> : <CheckCircle size={24}/>}</div><span className="text-sm font-black uppercase tracking-widest tracking-tighter">{notification.message}</span></div>}
+        {notification && <div className={`fixed bottom-24 lg:bottom-10 right-4 lg:right-10 px-8 py-5 rounded-[2.5rem] shadow-2xl flex items-center gap-4 z-[1000] animate-in slide-in-from-bottom duration-300 border-b-4 ${notification.type === 'error' ? 'bg-slate-900 border-red-500 text-white' : 'bg-slate-900 border-green-500 text-white'}`}><div className={notification.type === 'error' ? 'text-red-400' : 'text-green-400'}>{notification.type === 'error' ? <AlertCircle size={24}/> : <CheckCircle size={24}/>}</div><span className="text-sm font-black uppercase tracking-widest tracking-tighter text-white font-black">{notification.message}</span></div>}
       </main>
 
       {/* Mobile Nav */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 h-20 bg-white/90 backdrop-blur-xl border-t border-slate-200 flex items-center justify-around px-4 z-40 shadow-[0_-10px_30px_rgba(0,0,0,0.05)]">
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 h-20 bg-white/90 backdrop-blur-xl border-t border-slate-200 flex items-center justify-around px-4 z-40 shadow-[0_-10px_30px_rgba(0,0,0,0.05)] text-slate-900 font-black">
         <MobileNavItem icon={<LayoutDashboard size={22} />} label="Agenda" active={activeTab === 'agenda'} onClick={() => setActiveTab('agenda')} />
         {currentUser.isAdmin && <MobileNavItem icon={<Layers size={22} />} label="Gerir" active={activeTab === 'materials'} onClick={() => setActiveTab('materials')} />}
-        {currentUser.isAdmin && <MobileNavItem icon={<Download size={22} />} label="Excel" active={activeTab === 'export'} onClick={() => setActiveTab('export')} />}
+        {currentUser.isAdmin && <MobileNavItem icon={<Download size={22} />} label="Export" active={activeTab === 'export'} onClick={() => setActiveTab('export')} />}
         <MobileNavItem icon={<Wrench size={22} />} label="Alertas" active={activeTab === 'issues'} onClick={() => setActiveTab('issues')} />
       </div>
 
       {/* Modal Reserva */}
       {modalOpen && activeCell && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-xl z-[500] flex items-end lg:items-center justify-center p-0 lg:p-4 overflow-hidden animate-in fade-in">
-          <div className="bg-white rounded-t-[3.5rem] lg:rounded-[4rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in slide-in-from-bottom lg:zoom-in duration-300 flex flex-col max-h-[95vh] border border-slate-100 shadow-blue-900/20">
+          <div className="bg-white rounded-t-[3.5rem] lg:rounded-[4rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in slide-in-from-bottom lg:zoom-in duration-300 flex flex-col max-h-[95vh] border border-slate-100 shadow-blue-900/20 text-slate-900 font-black">
             <div className="bg-blue-600 p-10 text-white relative shadow-lg">
-              <h2 className="text-3xl font-black uppercase tracking-tight leading-none text-white">Agendar Recurso</h2>
+              <h2 className="text-3xl font-black uppercase tracking-tight leading-none text-white font-black">Agendar Recurso</h2>
               <div className="flex items-center gap-3 mt-5">
                 <p className="text-blue-100 text-[10px] font-black uppercase bg-blue-700/50 w-fit px-4 py-1.5 rounded-xl border border-white/10 shadow-sm">{currentUser.username}</p>
                 <p className="text-blue-100 text-[10px] font-black uppercase bg-blue-700/50 w-fit px-4 py-1.5 rounded-xl border border-white/10 shadow-sm">{new Date(activeCell.date + 'T12:00:00').toLocaleDateString('pt-BR', {day:'2-digit', month:'long'})}</p>
               </div>
               <button onClick={() => setModalOpen(false)} className="absolute top-10 right-10 text-white/50 hover:text-white transition-all bg-white/10 rounded-full p-2.5 hover:bg-white/20"><X size={28}/></button>
             </div>
-            <form onSubmit={saveBooking} className="p-10 space-y-7 overflow-y-auto scrollbar-hide pb-24 text-slate-900 font-bold">
+            <form onSubmit={saveBooking} className="p-10 space-y-8 overflow-y-auto scrollbar-hide pb-24 text-slate-900 font-bold">
               <div className="space-y-4 text-slate-900 font-bold">
                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-2">Turma</label>
                 <div className="grid grid-cols-3 gap-3 text-slate-900 font-bold">
@@ -613,7 +619,7 @@ export default function App() {
               </div>
               {modalNextAula && (
                 <div className="bg-blue-50 border-2 border-blue-100 p-6 rounded-[2.5rem] flex items-center justify-between shadow-inner">
-                  <div className="flex items-center gap-5">
+                  <div className="flex items-center gap-5 text-slate-900 font-black">
                     <div className="bg-white p-3 rounded-2xl text-blue-600 shadow-md border border-blue-50"><Repeat size={20} /></div>
                     <div>
                       <p className="text-xs font-black text-slate-900 uppercase tracking-tight text-slate-900 leading-none">Aula Geminada?</p>
@@ -623,7 +629,7 @@ export default function App() {
                   <button type="button" onClick={() => setIsDoubleBooking(!isDoubleBooking)} className={`w-14 h-7 rounded-full transition-all relative shadow-inner ${isDoubleBooking ? 'bg-blue-600' : 'bg-slate-300'}`}><div className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow-md transition-all ${isDoubleBooking ? 'left-8' : 'left-1'}`} /></button>
                 </div>
               )}
-              <div className="space-y-4 text-slate-900 font-bold">
+              <div className="space-y-4 text-slate-900 font-bold text-slate-900 font-black">
                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-2 text-slate-400 tracking-[0.2em]">Materiais</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {materials.map(res => {
@@ -633,7 +639,7 @@ export default function App() {
                     const isSelected = selectedResources.includes(res.id);
                     return (
                       <button key={res.id} type="button" onClick={() => !itemLocked && setSelectedResources(p => p.includes(res.id) ? p.filter(r => r !== res.id) : [...p, res.id])} className={`p-5 rounded-[1.8rem] border-2 text-left transition-all flex items-center justify-between shadow-sm ${itemLocked ? 'bg-slate-50 border-slate-100 opacity-40 cursor-not-allowed border-dashed' : isSelected ? 'border-blue-600 bg-blue-50 ring-4 ring-blue-50 scale-102 font-black shadow-blue-100 shadow-lg' : 'bg-white border-slate-100 hover:border-blue-400 shadow-inner'}`}>
-                        <div className="flex items-center gap-4 text-slate-900 font-black">
+                        <div className="flex items-center gap-4 text-slate-900 font-black font-black">
                           <div className={`w-3.5 h-3.5 rounded-full ${res.color} border-2 border-white shadow-sm`} />
                           <span className="text-[11px] uppercase tracking-tight">{res.name}</span>
                         </div>
@@ -652,7 +658,6 @@ export default function App() {
   );
 }
 
-// SideNavItem Component
 function SideNavItem({ icon, label, active, onClick }) {
   return (
     <button onClick={onClick} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[1.2rem] transition-all border-2 ${active ? 'bg-blue-600 border-blue-600 text-white shadow-xl shadow-blue-200 font-black' : 'border-transparent text-slate-400 hover:bg-slate-50 hover:text-slate-700 font-bold'}`}>
@@ -661,7 +666,6 @@ function SideNavItem({ icon, label, active, onClick }) {
   );
 }
 
-// MobileNavItem Component
 function MobileNavItem({ icon, label, active, onClick }) {
   return (
     <button onClick={onClick} className={`flex-1 flex flex-col items-center justify-center gap-1.5 h-full transition-all ${active ? 'text-blue-600 scale-110 font-black' : 'text-slate-400 font-bold'}`}>
