@@ -651,4 +651,3 @@ function MobileNavItem({ icon, label, active, onClick }) {
     </button>
   );
 }
-
